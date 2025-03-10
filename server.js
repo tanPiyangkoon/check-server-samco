@@ -47,7 +47,7 @@ cron.schedule('*/5 * * * *', async () => {
         let rs = await ping.promise.probe(host);
         await logToElasticsearch(rs.host, rs.alive);
     }
-});
+});  //
 
 // 📌 API สำหรับ Ping แบบ Manual
 app.get('/ping', async (req, res) => {
