@@ -40,7 +40,7 @@ async function logToElasticsearch(host, alive) {
         console.error('❌ Error logging to Elasticsearch:', error);
     }
 }
-
+//1
 // 📌 ตั้ง Cron Job ให้ Ping ทุก 5 นาที
 cron.schedule('*/5 * * * *', async () => {
     for (let host of hosts) {
