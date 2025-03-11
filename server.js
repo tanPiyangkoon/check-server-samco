@@ -20,7 +20,7 @@ const esClient = new Client({
 });
 
 // 📌 ตั้งค่า Slack Webhook URL
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/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';
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/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';
 
 // 📌 รายชื่อเซิร์ฟเวอร์ที่ต้อง Ping
 const hosts = [
