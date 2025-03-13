@@ -5,7 +5,7 @@ const cors = require("cors");
 const cron = require('node-cron');
 const moment = require('moment-timezone'); 
 const { Client } = require('@elastic/elasticsearch');
-const axios = require('axios'); // ✅ เพิ่ม axios
+const axios = require('axios'); 
 
 const app = express();
 const PORT = process.env.PORT || 5004;
@@ -19,8 +19,8 @@ const esClient = new Client({
     }
 });
 
-// 📌 ตั้งค่า Slack Webhook URL
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/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';
+
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1349302327655272448/ZaFUL9MZ4dqxiBw7PYsJrJDtmkN12ydL1696eEpH_2PcV9EgLgEKbqQmx0aTScJH7lKB';
 
 // 📌 รายชื่อเซิร์ฟเวอร์ที่ต้อง Ping
 const hosts = [
@@ -33,23 +33,43 @@ function getISOTime() {
     return moment().tz("Asia/Bangkok").toISOString();
 }
 
-// 📌 ฟังก์ชันส่งข้อมูลไปยัง Slack
-async function sendToSlack(host, alive) {
+
+async function sendToDiscord(host, alive, retryCount = 0) {
     try {
         const statusText = alive ? "✅ UP" : "❌ DOWN";
+        const color = alive ? 3066993 : 15158332; // สี: เขียว (UP) / แดง (DOWN)
+        
         const message = {
-            text: `🔍 *Server Status Update*\n🔹 Host: *${host}*\n🔹 Status: *${statusText}*\n🔹 Time: ${getISOTime()}`
+            username: "Server Monitor",
+            embeds: [
+                {
+                    title: "🔍 Server Status Update",
+                    description: `🔹 **Host:** \`${host}\`\n🔹 **Status:** **${statusText}**\n🔹 **Time:** ${getISOTime()}`,
+                    color: color
+                }
+            ]
         };
 
-        await axios.post(SLACK_WEBHOOK_URL, message);
-        console.log(`📩 Sent to Slack: ${host} - ${statusText}`);
+        const response = await axios.post(DISCORD_WEBHOOK_URL, message);
+        if (response.status === 204) {
+            console.log(`📩 Sent to Discord: ${host} - ${statusText}`);
+        } else {
+            throw new Error(`Unexpected response from Discord: ${response.status}`);
+        }
     } catch (error) {
-        console.error('❌ Error sending to Slack:', error);
+        console.error(`❌ Error sending to Discord (Retry ${retryCount}):`, error.message);
+        
+        // ลองส่งใหม่ถ้ายังไม่ถึง retry limit (3 ครั้ง)
+        if (retryCount < 3) {
+            console.log("♻️ Retrying...");
+            await new Promise(res => setTimeout(res, 2000)); // รอ 2 วินาที
+            return sendToDiscord(host, alive, retryCount + 1);
+        }
     }
 }
 
 // 📌 ฟังก์ชันบันทึก Log ไปที่ Elasticsearch
-async function logToElasticsearch(host, alive) {
+async function logToElasticsearch(host, alive, retryCount = 0) {
     try {
         const timestamp = getISOTime(); 
         await esClient.index({
@@ -62,28 +82,42 @@ async function logToElasticsearch(host, alive) {
         });
         console.log(`📌 Logged to Elasticsearch: ${host} - Alive: ${alive} - Time: ${timestamp}`);
     } catch (error) {
-        console.error('❌ Error logging to Elasticsearch:', error);
+        console.error(`❌ Error logging to Elasticsearch (Retry ${retryCount}):`, error.message);
+        
+        // ลองส่งใหม่ถ้ายังไม่ถึง retry limit (3 ครั้ง)
+        if (retryCount < 3) {
+            console.log("♻️ Retrying...");
+            await new Promise(res => setTimeout(res, 2000)); // รอ 2 วินาที
+            return logToElasticsearch(host, alive, retryCount + 1);
+        }
     }
 }
 
 // 📌 ตั้ง Cron Job ให้ Ping ทุก 5 นาที
 cron.schedule('*/5 * * * *', async () => {
+    console.log(`🔄 Running Scheduled Ping at ${getISOTime()}`);
+
     for (let host of hosts) {
         let rs = await ping.promise.probe(host);
         await logToElasticsearch(rs.host, rs.alive);
-        await sendToSlack(rs.host, rs.alive); // ✅ ส่งไปที่ Slack
+        await sendToDiscord(rs.host, rs.alive);
     }
+
+    console.log(`✅ Finished Scheduled Ping at ${getISOTime()}`);
 });
 
 // 📌 API สำหรับ Ping แบบ Manual
 app.get('/ping', async (req, res) => {
+    console.log(`📢 Manual Ping Requested at ${getISOTime()}`);
     let results = [];
+    
     for (let host of hosts) {
         let rs = await ping.promise.probe(host);
         await logToElasticsearch(rs.host, rs.alive);
-        await sendToSlack(rs.host, rs.alive); // ✅ ส่งไปที่ Slack
+        await sendToDiscord(rs.host, rs.alive);
         results.push(rs);
     }
+
     res.json({ results });
 });
 
