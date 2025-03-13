@@ -100,7 +100,7 @@ cron.schedule('*/5 * * * *', async () => {
     for (let host of hosts) {
         let rs = await ping.promise.probe(host);
         await logToElasticsearch(rs.host, rs.alive);
-        // await sendToDiscord(rs.host, rs.alive);
+        await sendToDiscord(rs.host, rs.alive);
     }
 
     console.log(`✅ Finished Scheduled Ping at ${getISOTime()}`);
