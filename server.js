@@ -10,7 +10,7 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 5004;
 
-// 📌 ตั้งค่า Elasticsearch
+
 const esClient = new Client({
     node: 'http://10.2.114.76:9200',
     auth: {
@@ -19,57 +19,51 @@ const esClient = new Client({
     }
 });
 
-
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1349302327655272448/ZaFUL9MZ4dqxiBw7PYsJrJDtmkN12ydL1696eEpH_2PcV9EgLgEKbqQmx0aTScJH7lKB';
 
-// 📌 รายชื่อเซิร์ฟเวอร์ที่ต้อง Ping
+
 const hosts = [
     '192.168.1.1', '192.168.1.11', '192.168.1.6', 
     '192.168.1.18', '192.168.1.9', '192.168.2.34'
 ];
 
-// 📌 ฟังก์ชันแปลงเวลาให้เป็น ISO 8601
+
 function getISOTime() {
     return moment().tz("Asia/Bangkok").toISOString();
 }
 
 
-async function sendToDiscord(host, alive, retryCount = 0) {
+async function sendToDiscord(host, retryCount = 0) {
     try {
-        const statusText = alive ? "✅ UP" : "❌ DOWN";
-        const color = alive ? 3066993 : 15158332; // สี: เขียว (UP) / แดง (DOWN)
-        
         const message = {
             username: "Server Monitor",
             embeds: [
                 {
-                    title: "🔍 Server Status Update",
-                    description: `🔹 **Host:** \`${host}\`\n🔹 **Status:** **${statusText}**\n🔹 **Time:** ${getISOTime()}`,
-                    color: color
+                    title: "🚨 Server Status Down",
+                    description: `❌ **Host:** \`${host}\`\n🔹 **Status:** **DOWN**\n🔹 **Time:** ${getISOTime()}`,
+                    color: 15158332 // สีแดง
                 }
             ]
         };
 
         const response = await axios.post(DISCORD_WEBHOOK_URL, message);
         if (response.status === 204) {
-            console.log(`📩 Sent to Discord: ${host} - ${statusText}`);
+            console.log(`📩 Sent to Discord: ${host} - ❌ DOWN`);
         } else {
             throw new Error(`Unexpected response from Discord: ${response.status}`);
         }
     } catch (error) {
         console.error(`❌ Error sending to Discord (Retry ${retryCount}):`, error.message);
         
-        // ลองส่งใหม่ถ้ายังไม่ถึง retry limit (3 ครั้ง)
         if (retryCount < 3) {
             console.log("♻️ Retrying...");
-            await new Promise(res => setTimeout(res, 2000)); // รอ 2 วินาที
-            return sendToDiscord(host, alive, retryCount + 1);
+            await new Promise(res => setTimeout(res, 2000));
+            return sendToDiscord(host, retryCount + 1);
         }
     }
 }
 
-// 📌 ฟังก์ชันบันทึก Log ไปที่ Elasticsearch
-async function logToElasticsearch(host, alive, retryCount = 0) {
+async function logToElasticsearch(host, retryCount = 0) {
     try {
         const timestamp = getISOTime(); 
         await esClient.index({
@@ -77,51 +71,65 @@ async function logToElasticsearch(host, alive, retryCount = 0) {
             body: {
                 timestamp: timestamp,
                 host: host,
-                alive: alive
+                alive: false // 
             }
         });
-        console.log(`📌 Logged to Elasticsearch: ${host} - Alive: ${alive} - Time: ${timestamp}`);
+        console.log(`📌 Logged to Elasticsearch: ${host} - ❌ DOWN - Time: ${timestamp}`);
     } catch (error) {
         console.error(`❌ Error logging to Elasticsearch (Retry ${retryCount}):`, error.message);
         
-        // ลองส่งใหม่ถ้ายังไม่ถึง retry limit (3 ครั้ง)
         if (retryCount < 3) {
             console.log("♻️ Retrying...");
-            await new Promise(res => setTimeout(res, 2000)); // รอ 2 วินาที
-            return logToElasticsearch(host, alive, retryCount + 1);
+            await new Promise(res => setTimeout(res, 2000));
+            return logToElasticsearch(host, retryCount + 1);
         }
     }
 }
 
-// 📌 ตั้ง Cron Job ให้ Ping ทุก 5 นาที
+
 cron.schedule('*/5 * * * *', async () => {
     console.log(`🔄 Running Scheduled Ping at ${getISOTime()}`);
 
-    for (let host of hosts) {
-        let rs = await ping.promise.probe(host);
-        await logToElasticsearch(rs.host, rs.alive);
-        await sendToDiscord(rs.host, rs.alive);
+    try {
+        for (let host of hosts) {
+            let rs = await ping.promise.probe(host);
+
+            if (!rs.alive) {
+                await logToElasticsearch(rs.host);
+                await sendToDiscord(rs.host);
+            }
+        }
+    } catch (error) {
+        console.error(`❌ Error in Scheduled Ping:`, error.message);
     }
 
     console.log(`✅ Finished Scheduled Ping at ${getISOTime()}`);
 });
 
-// 📌 API สำหรับ Ping แบบ Manual
+
 app.get('/ping', async (req, res) => {
     console.log(`📢 Manual Ping Requested at ${getISOTime()}`);
     let results = [];
-    
-    for (let host of hosts) {
-        let rs = await ping.promise.probe(host);
-        await logToElasticsearch(rs.host, rs.alive);
-        await sendToDiscord(rs.host, rs.alive);
-        results.push(rs);
-    }
 
+    try {
+        for (let host of hosts) {
+            let rs = await ping.promise.probe(host);
+
+            if (!rs.alive) {
+                await logToElasticsearch(rs.host);
+                await sendToDiscord(rs.host);
+            }
+
+            results.push(rs);
+        }
+    } catch (error) {
+        console.error(`❌ Error in Manual Ping:`, error.message);
+    }
+    
     res.json({ results });
 });
 
-// 📌 เปิดเซิร์ฟเวอร์
+
 app.listen(PORT, () => {
     console.log(`✅ Server is running on port: ${PORT}`);
 });
