@@ -8,3 +8,6 @@ services:
     env_file:
       - .env
     restart: always
+    cap_add:
+      - NET_RAW
+    
