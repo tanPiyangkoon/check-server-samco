@@ -22,6 +22,7 @@ const esClient = new Client({
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1349302327655272448/ZaFUL9MZ4dqxiBw7PYsJrJDtmkN12ydL1696eEpH_2PcV9EgLgEKbqQmx0aTScJH7lKB';
 
 
+
 const hosts = [
     '192.168.1.1', '192.168.1.11', '192.168.1.6', 
     '192.168.1.18', '192.168.1.9', '192.168.2.34'
@@ -41,7 +42,7 @@ async function sendToDiscord(host, retryCount = 0) {
                 {
                     title: "🚨 Server Status Down",
                     description: `❌ **Host:** \`${host}\`\n🔹 **Status:** **DOWN**\n🔹 **Time:** ${getISOTime()}`,
-                    color: 15158332 // สีแดง
+                    color: 15158332 
                 }
             ]
         };
@@ -60,6 +61,38 @@ async function sendToDiscord(host, retryCount = 0) {
             await new Promise(res => setTimeout(res, 2000));
             return sendToDiscord(host, retryCount + 1);
         }
+    }
+}
+
+async function sendToLineNotification(host, retryCount = 0) {
+    const LINE_NOTIFY_TOKEN = process.env.LINE_NOTIFY_TOKEN;
+    const message = `🚨 Server DOWN\n❌ Host: ${host}\n🕒 Time: ${getISOTime()}`;
+    
+    try {
+        const response = await axios.post('https://notify-api.line.me/api/notify', 
+            new URLSearchParams({ message }), {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': `Bearer ${LINE_NOTIFY_TOKEN}`
+                }
+            }
+        );
+
+        if (response.status === 200) {
+            console.log(`📩 Sent to LINE Notify: ${host} - ❌ DOWN`);
+        } else {
+            throw new Error(`Unexpected response from LINE: ${response.status}`);
+        }
+    
+    }catch (error){
+        console.error(`❌ Error sending to LINE Notification (Retry ${retryCount}):`, error.message);
+
+        if (retryCount < 3){
+            console.log("♻️ Retrying...");
+            await new Promise(res => setTimeout(res, 2000));
+            return sendToLineNotification(host, retryCount + 1);
+        }
+
     }
 }
 
@@ -97,6 +130,7 @@ cron.schedule('*/5 * * * *', async () => {
             if (!rs.alive) {
                 await logToElasticsearch(rs.host);
                 await sendToDiscord(rs.host);
+                await sendToLineNotification(rs.host);
             }
         }
     } catch (error) {
@@ -118,6 +152,7 @@ app.get('/ping', async (req, res) => {
             if (!rs.alive) {
                 await logToElasticsearch(rs.host);
                 await sendToDiscord(rs.host);
+                await sendToLineNotification(rs.host);
             }
 
             results.push(rs);
