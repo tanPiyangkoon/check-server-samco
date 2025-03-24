@@ -10,4 +10,5 @@ services:
     restart: always
     cap_add:
       - NET_RAW
+    network_mode: "host"
     
